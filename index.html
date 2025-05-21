@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Project Collaboration Map</title>
+    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { display: flex; gap: 20px; }
+        #network { width: 800px; height: 600px; border: 1px solid #ccc; }
+        .form-container { width: 300px; }
+        input, button, textarea { margin: 5px 0; width: 100%; }
+        .project-list { margin-top: 20px; }
+        .project-item { margin: 5px 0; padding: 5px; border: 1px solid #ddd; }
+        .project-controls { margin-top: 5px; }
+        button { cursor: pointer; padding: 5px; }
+    </style>
+</head>
+<body>
+    <h1>Project Collaboration Map</h1>
+    <div class="container">
+        <div class="form-container">
+            <h3>Settings</h3>
+            <input type="text" id="defaultUser" placeholder="Your name (default user)" 
+                   onchange="saveDefaultUser()">
+            
+            <h3>Add New Project</h3>
+            <input type="text" id="projectName" placeholder="Project name">
+            <textarea id="people" placeholder="Participants (comma-separated)" rows="4"></textarea>
+            <button onclick="addProject()">Add Project</button>
+            
+            <div class="project-list">
+                <h4>Saved Projects</h4>
+                <div id="projectList"></div>
+            </div>
+            <button onclick="clearData()" style="background-color: #ff4444;">Clear All Data</button>
+        </div>
+        <div id="network"></div>
+    </div>
+
+    <script>
+        let projects = JSON.parse(localStorage.getItem('projects') || '[]');
+        let network = null;
+        let defaultUser = localStorage.getItem('defaultUser') || '';
+
+        function initialize() {
+            document.getElementById('defaultUser').value = defaultUser;
+            document.getElementById('people').value = defaultUser;
+            updateProjectList();
+            drawNetwork();
+        }
+
+        function saveDefaultUser() {
+            defaultUser = document.getElementById('defaultUser').value.trim();
+            localStorage.setItem('defaultUser', defaultUser);
+            document.getElementById('people').value = defaultUser;
+        }
+
+        function addProject() {
+            const projectName = document.getElementById('projectName').value.trim();
+            const people = document.getElementById('people').value
+                .split(',')
+                .map(name => name.trim())
+                .filter(name => name);
+
+            if (!projectName || people.length < 2) {
+                alert('Please enter both project name and at least 2 participants');
+                return;
+            }
+
+            projects.push({ name: projectName, members: people });
+            saveProjects();
+            updateProjectList();
+            drawNetwork();
+            document.getElementById('projectName').value = '';
+            document.getElementById('people').value = defaultUser;
+        }
+
+        function deleteProject(index) {
+            projects.splice(index, 1);
+            saveProjects();
+            updateProjectList();
+            drawNetwork();
+        }
+
+        function editProject(index) {
+            const newName = prompt('Enter new project name:', projects[index].name);
+            if (newName && newName.trim()) {
+                projects[index].name = newName.trim();
+                saveProjects();
+                updateProjectList();
+                drawNetwork();
+            }
+        }
+
+        function saveProjects() {
+            localStorage.setItem('projects', JSON.stringify(projects));
+        }
+
+        function drawNetwork() {
+            const container = document.getElementById('network');
+            const { nodes, edges } = generateNetworkData();
+            
+            const data = {
+                nodes: new vis.DataSet(nodes),
+                edges: new vis.DataSet(edges)
+            };
+
+            const options = {
+                nodes: {
+                    shape: 'dot',
+                    size: 20,
+                    font: { size: 14 }
+                },
+                edges: {
+                    width: 2,
+                    smooth: { type: 'continuous' }
+                },
+                physics: {
+                    stabilization: true,
+                    barnesHut: {
+                        gravitationalConstant: -2000,
+                        springLength: 200
+                    }
+                },
+                interaction: { hover: true }
+            };
+
+            network = network || new vis.Network(container, data, options);
+            network.setData(data);
+        }
+
+        function generateNetworkData() {
+            const nodes = new Set();
+            const edges = {};
+            
+            projects.forEach(project => {
+                const members = project.members;
+                members.forEach(name => nodes.add(name));
+                
+                for (let i = 0; i < members.length; i++) {
+                    for (let j = i + 1; j < members.length; j++) {
+                        const pair = [members[i], members[j]].sort().join('|');
+                        edges[pair] = edges[pair] || { count: 0, projects: new Set() };
+                        edges[pair].count++;
+                        edges[pair].projects.add(project.name);
+                    }
+                }
+            });
+
+            const formattedNodes = Array.from(nodes).map(name => ({
+                id: name,
+                label: name,
+                value: projects.filter(p => p.members.includes(name)).length
+            }));
+
+            const formattedEdges = Object.entries(edges).map(([pair, data]) => ({
+                from: pair.split('|')[0],
+                to: pair.split('|')[1],
+                width: Math.log(data.count) + 1,
+                label: `${data.count}`,
+                title: `Projects: ${Array.from(data.projects).join(', ')}`
+            }));
+
+            return { nodes: formattedNodes, edges: formattedEdges };
+        }
+
+        function updateProjectList() {
+            const list = document.getElementById('projectList');
+            list.innerHTML = projects.map((p, i) => `
+                <div class="project-item">
+                    <strong>${p.name}</strong><br>
+                    ${p.members.join(', ')}
+                    <div class="project-controls">
+                        <button onclick="editProject(${i})">Edit Name</button>
+                        <button onclick="deleteProject(${i})">Delete</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function clearData() {
+            if (confirm('Are you sure you want to delete all data?')) {
+                localStorage.clear();
+                projects = [];
+                defaultUser = '';
+                updateProjectList();
+                drawNetwork();
+                initialize();
+            }
+        }
+
+        window.onload = initialize;
+    </script>
+</body>
+</html>
